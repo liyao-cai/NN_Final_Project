@@ -10,7 +10,7 @@ In the future we will also complete the visualization of model test results and 
 
 Team Members:
 1. Liyao Cai: G31073342
-2. Modi Li: G34911969
+2. Modi Li: G34911969(HelloVictor2000)
 3. Ying Liu: G3385068
 
 
