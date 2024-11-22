@@ -9,8 +9,8 @@ At present, we have completed the data processing, including the division of tra
 In the future we will also complete the visualization of model test results and tune the model as much as possible.
 
 Team Members:
-1. Liyao Cai: G31073342
+1. Liyao Cai: G31073342(liyao-cai)
 2. Modi Li: G34911969(HelloVictor2000)
-3. Ying Liu: G3385068
+3. Ying Liu: G3385068(598790089)
 
 
