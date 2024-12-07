@@ -1,78 +1,141 @@
-import numpy as np
 import tensorflow as tf
 from tensorflow.keras.datasets import imdb
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from transformers import DistilBertTokenizer, TFDistilBertForSequenceClassification
+from tensorflow.keras.preprocessing import sequence
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import (
+    Input,
+    Embedding,
+    Dense,
+    Dropout,
+    LayerNormalization,
+    MultiHeadAttention,
+    GlobalAveragePooling1D,
+    Add
+)
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, classification_report
 
+# We only keep the most common 10,000 words
 max_features = 10000
-max_len = 500
+max_len = 500  # Maximum length of each comment
+embedding_dim = 128  # Embedding Dimensions
+num_heads = 4  # MultiHeadAttention number
+ff_dim = 128  # Hidden layer dimensions of feedforward networks
+num_transformer_blocks = 2  # Number of Transformer Blocks
+dropout_rate = 0.4  # Dropout
 
-(X_train, y_train), (X_test, y_test) = imdb.load_data(num_words=max_features)
+# Load the data and convert the reviews into integer-encoded sequences
+(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
 
-X_all = np.concatenate([X_train, X_test])
-y_all = np.concatenate([y_train, y_test])
+# Combine all data
+x_full_train = np.concatenate([x_train, x_test])
+y_full_train = np.concatenate([y_train, y_test])
 
-X_train = X_all[:40000]
-y_train = y_all[:40000]
+# The first 40,000 records are used as the new training set, and the remaining 10,000 records are used as the new test set.
+x_train_new = x_full_train[:40000]
+y_train_new = y_full_train[:40000]
 
-X_test = X_all[40000:]
-y_test = y_all[40000:]
+x_test_new = x_full_train[40000:]
+y_test_new = y_full_train[40000:]
 
-# X_train = pad_sequences(X_train, maxlen=max_len)
-# X_test = pad_sequences(X_test, maxlen=max_len)
+# Pad or truncate the merged data
+x_train_new = sequence.pad_sequences(x_train_new, maxlen=max_len)
+x_test_new = sequence.pad_sequences(x_test_new, maxlen=max_len)
 
-word_index = imdb.get_word_index()
-index_to_word = {index + 3 : word for word, index in word_index.items()}
-index_to_word[0], index_to_word[1], index_to_word[2] = "<PAD>", "<START>", "<UNK>"
+# Define Transformer Block
+class TransformerBlock(tf.keras.layers.Layer):
+    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
+        super(TransformerBlock, self).__init__()
+        self.att = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.ffn = tf.keras.Sequential(
+            [
+                Dense(ff_dim, activation="relu"),
+                Dense(embed_dim),  # Output back to embed_dim
+            ]
+        )
+        self.layernorm1 = LayerNormalization(epsilon=1e-6)  # First layer normalization
+        self.layernorm2 = LayerNormalization(epsilon=1e-6)  # Second layer normalization
+        self.dropout1 = Dropout(rate)
+        self.dropout2 = Dropout(rate)
 
-def decode(encoded_review):
-	return " ".join([index_to_word.get(word, "<UNK>") for word in encoded_review])
+    def call(self, inputs, training):
+        # Multihead attention
+        attn_output = self.att(inputs, inputs)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(inputs + attn_output)  # Residual connection + normalization
+        # Feedforward Network
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        return self.layernorm2(out1 + ffn_output)  # Residual connection + normalization
 
-X_train_text = [decode(review) for review in X_train]
-X_test_text = [decode(review) for review in X_test]
+# Define Embedding + Transformer model
+def create_transformer_model():
+    # Input layer
+    inputs = Input(shape=(max_len,))
 
-tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+    # Embedding layer
+    embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_dim, input_length=max_len)
+    x = embedding_layer(inputs)
 
-X_train_encodings = tokenizer(X_train_text, padding="max_length", truncation=True, max_length=max_len, return_tensors="tf")
-X_test_encodings = tokenizer(X_test_text, padding="max_length", truncation=True, max_length=max_len, return_tensors="tf")
+    # Several Transformer Blocks
+    for _ in range(num_transformer_blocks):
+        transformer_block = TransformerBlock(embed_dim=embedding_dim, num_heads=num_heads, ff_dim=ff_dim, rate=dropout_rate)
+        x = transformer_block(x)
 
-y_train = tf.convert_to_tensor(y_train)
-y_test = tf.convert_to_tensor(y_test)
+    # Global average pooling layer, dimensionality reduction
+    x = GlobalAveragePooling1D()(x)
 
-model = TFDistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+    # Dropout
+    x = Dropout(dropout_rate)(x)
 
-optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.01)
-loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-metric = tf.keras.metrics.SparseCategoricalAccuracy("accuracy")
-model.compile(optimizer=optimizer, loss=loss, metrics=[metric])
+    # Fully connected layer for binary classification
+    outputs = Dense(1, activation="sigmoid")(x)
 
+    model = Model(inputs=inputs, outputs=outputs)
+    return model
+model = create_transformer_model()
+
+# Compile the model
+model.compile(
+    optimizer="adam",
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+
+batch_size = 64
+epochs = 3
+
+# Train the model
 history = model.fit(
-	{
-		"input_ids": X_train_encodings["input_ids"],
-		"attention_mask": X_train_encodings["attention_mask"]
-	},
-	y_train,
-	validation_data=(
-		{
-			"input_ids": X_test_encodings["input_ids"],
-			"attention_mask": X_test_encodings["attention_mask"]
-		},
-		y_test
-	),
-	epochs=5,
-	batch_size=32
+    x_train_new, y_train_new,
+    batch_size=batch_size,
+    epochs=epochs,
+    validation_data=(x_test_new, y_test_new)
 )
+# Evaluate the model
+score, acc = model.evaluate(x_test_new, y_test_new, batch_size=batch_size)
+print(f'Test score: {score}')
+print(f'Test accuracy: {acc}')
 
-results = model.evaluate(
-	{
-		"input_ids": X_test_encodings["input_ids"],
-		"attention_mask": X_test_encodings["attention_mask"]
-	},
-	y_test
-)
+# Generate predictions on the test set
+y_pred_prob = model.predict(x_test_new, batch_size=batch_size)
+y_pred = (y_pred_prob > 0.5).astype(int)  # Convert probabilities to binary predictions
 
-print(f"Test Loss: {results[0]}")
-print(f"Test Accuracy: {results[1]}")
+# Confusion Matrix
+mat = confusion_matrix(y_test_new, y_pred)
 
-model.save_pretrained("./models")
-tokenizer.save_pretrained("./models")
+# Heatmap Visualization
+sns.set(rc={'figure.figsize': (8, 8)})
+sns.heatmap(mat, square=True, annot=True, fmt='d', cbar=False,
+            xticklabels=['Negative', 'Positive'],
+            yticklabels=['Negative', 'Positive'])
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Classification Report
+print(classification_report(y_test_new, y_pred, target_names=['Negative', 'Positive']))
