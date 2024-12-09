@@ -59,7 +59,7 @@ cm = confusion_matrix(y_test_new, y_pred)
 
 # Display the confusion matrix
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Negative', 'Positive'])
-disp.plot(cmap='cividis')  # You can customize the colormap if needed
+disp.plot(cmap='magma')  
 plt.title('Confusion Matrix')
 plt.show()
 
@@ -67,4 +67,3 @@ plt.show()
 print("Classification Report:")
 report = classification_report(y_test_new, y_pred, target_names=['Negative', 'Positive'])
 print(report)
-
