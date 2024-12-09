@@ -46,3 +46,25 @@ print(f"Test Accuracy: {test_acc:.2f}")
 
 # Save the model for compare and contrast with other models
 model.save('rnn_imdb_sentiment_custom.h5')
+
+from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+# Predict probabilities using the model and convert them to binary classification results
+y_pred_probs = model.predict(x_test_new)
+y_pred = (y_pred_probs > 0.5).astype(int).flatten()  # Convert probabilities to binary labels
+
+# Generate the confusion matrix
+cm = confusion_matrix(y_test_new, y_pred)
+
+# Display the confusion matrix
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Negative', 'Positive'])
+disp.plot(cmap='cividis')  # You can customize the colormap if needed
+plt.title('Confusion Matrix')
+plt.show()
+
+# Print the classification report
+print("Classification Report:")
+report = classification_report(y_test_new, y_pred, target_names=['Negative', 'Positive'])
+print(report)
+
